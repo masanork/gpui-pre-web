@@ -1,3 +1,4 @@
+// Also modified by ibis inc.: `font_data`, `synthetic_style` and `font_variations` are the native text system's.
 use crate::canvas_fallback::{
     CanvasFontFallback, classify_canvas_fallback, is_latin_grapheme, requested_family_names,
 };
@@ -340,6 +341,29 @@ impl PlatformTextSystem for WebTextSystem {
 
     fn font_metrics(&self, font_id: FontId) -> FontMetrics {
         self.native.font_metrics(self.native_font_id(font_id))
+    }
+
+    // ibis: the bytes of the fonts GPUI carries, for text drawn as glyph outlines (glow, gradient fills, PDF).
+    // A font the browser draws (Canvas) has none: its glyph IDs are not the file's.
+    fn font_data(&self, font_id: FontId) -> Option<(Arc<Vec<u8>>, u32)> {
+        if self.canvas_font(font_id).is_some() {
+            return None;
+        }
+        self.native.font_data(font_id)
+    }
+
+    fn synthetic_style(&self, font_id: FontId) -> (bool, bool) {
+        if self.canvas_font(font_id).is_some() {
+            return (false, false);
+        }
+        self.native.synthetic_style(font_id)
+    }
+
+    fn font_variations(&self, font_id: FontId) -> Vec<([u8; 4], f32)> {
+        if self.canvas_font(font_id).is_some() {
+            return Vec::new();
+        }
+        self.native.font_variations(font_id)
     }
 
     fn typographic_bounds(&self, font_id: FontId, glyph_id: GlyphId) -> Result<Bounds<f32>> {

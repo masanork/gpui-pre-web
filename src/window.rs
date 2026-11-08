@@ -1,3 +1,5 @@
+// Modified by ibis inc. for ibisOffice: `update_ime_position` moves the hidden IME element.
+
 use crate::display::WebDisplay;
 use crate::events::{
     ClickState, EventListenerHandle, TouchIds, WebEventListeners, is_mac_platform,
@@ -1006,7 +1008,15 @@ impl PlatformWindow for WebWindow {
         Some(self.inner.state.borrow().renderer.gpu_specs())
     }
 
-    fn update_ime_position(&self, _bounds: Bounds<Pixels>) {}
+    fn update_ime_position(&self, bounds: Bounds<Pixels>) {
+        // ibis: the candidate window of the IME opens at the hidden element.
+        let canvas = self.inner.canvas.get_bounding_client_rect();
+        self.inner.ime_mirror.place(
+            canvas.left() as f32 + f32::from(bounds.origin.x),
+            canvas.top() as f32 + f32::from(bounds.origin.y),
+            f32::from(bounds.size.height),
+        );
+    }
 
     fn request_decorations(&self, _decorations: WindowDecorations) {}
 

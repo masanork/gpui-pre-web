@@ -1,3 +1,4 @@
+// Also modified by ibis inc.: the hidden IME element is placed at the text being composed.
 // Modified by ibis inc. for ibisOffice: ignore IME-processed keydown events
 // (keyCode == 229, is_composing) before dispatching to the application,
 // preventing duplicate character entry and unwanted cell navigation on commit.
@@ -477,6 +478,20 @@ impl WebWindowInner {
             let event: web_sys::Event = event.unchecked_into();
             event.prevent_default();
         })
+    }
+
+    /// Moves the hidden IME element to the text being typed (ibis: so the candidate
+    /// window opens there). The editor's bounds are in the canvas's CSS pixels.
+    fn place_ime_mirror(self: &Rc<Self>) {
+        let Some(Some(bounds)) = self.with_input_handler(|handler| handler.ime_candidate_bounds()) else {
+            return;
+        };
+        let canvas = self.canvas.get_bounding_client_rect();
+        self.ime_mirror.place(
+            canvas.left() as f32 + f32::from(bounds.origin.x),
+            canvas.top() as f32 + f32::from(bounds.origin.y),
+            f32::from(bounds.size.height),
+        );
     }
 
     /// See [`ImeMirror::schedule_sync`].
@@ -1126,6 +1141,7 @@ impl WebWindowInner {
         let this = Rc::clone(self);
         self.listen_input("compositionstart", move |_event: JsValue| {
             this.is_composing.set(true);
+            this.place_ime_mirror();
         })
     }
 
@@ -1138,6 +1154,7 @@ impl WebWindowInner {
             this.with_input_handler(|handler| {
                 handler.replace_and_mark_text_in_range(None, &data, None);
             });
+            this.place_ime_mirror();
         })
     }
 

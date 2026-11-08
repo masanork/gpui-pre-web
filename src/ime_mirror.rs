@@ -1,3 +1,6 @@
+// Modified by ibis inc. for ibisOffice: the hidden IME element follows the text being typed
+// (`place`), so the IME candidate window opens there, not at the page's top-left.
+
 //! The hidden `<textarea>` that connects browser IMEs to GPUI.
 //!
 //! IMEs (software keyboards, composition engines) decide what backspace,
@@ -223,6 +226,17 @@ impl ImeMirror {
         {
             log::warn!("Failed to configure input mode: {error:?}");
         }
+    }
+
+    /// Puts the hidden element where the text being typed is (page CSS pixels), so that the
+    /// IME's candidate window opens under the text, not in the page's top-left corner
+    /// (ibis: the element sits at 0,0 otherwise). Only the element's style changes; its
+    /// value and selection are not written, so the IME is not restarted.
+    pub(crate) fn place(&self, left: f32, top: f32, height: f32) {
+        let style = self.element.style();
+        style.set_property("left", &format!("{left}px")).ok();
+        style.set_property("top", &format!("{top}px")).ok();
+        style.set_property("height", &format!("{}px", height.max(1.0))).ok();
     }
 
     pub(crate) fn remove(&self) {

@@ -342,6 +342,16 @@ impl PlatformTextSystem for WebTextSystem {
         self.native.font_metrics(self.native_font_id(font_id))
     }
 
+    fn font_data(&self, font_id: FontId) -> Option<(Arc<Vec<u8>>, u32)> {
+        // Browser Canvas fonts expose pixels, not font bytes. Fonts actually
+        // loaded into Cosmic can be shaped directly, including vert/vrt2.
+        if self.canvas_font(font_id).is_some() {
+            None
+        } else {
+            self.native.font_data(font_id)
+        }
+    }
+
     fn typographic_bounds(&self, font_id: FontId, glyph_id: GlyphId) -> Result<Bounds<f32>> {
         let Some(font) = self.canvas_font(font_id) else {
             return self.native.typographic_bounds(font_id, glyph_id);

@@ -185,6 +185,8 @@ fn is_japanese_symbol(c: char) -> bool {
         | '\u{25a0}'..='\u{25ff}' // geometric shapes (□ ■ ○ ●)
         | '\u{2605}' | '\u{2606}' | '\u{2640}' | '\u{2642}' // ★ ☆ ♀ ♂
         | '\u{3200}'..='\u{33ff}' // enclosed CJK, CJK compatibility (㈱ ㎡)
+        | '\u{fe10}'..='\u{fe19}' // vertical punctuation presentation forms
+        | '\u{fe30}'..='\u{fe44}' | '\u{fe47}'..='\u{fe48}' // vertical brackets and leaders
     )
 }
 
@@ -304,7 +306,7 @@ mod tests {
 
     #[test]
     fn japanese_symbols_fall_back() {
-        for c in ["５", "※", "％", "＋", "①", "□", "●", "→", "―", "…", "㈱", "ｱ", "￥", "　"] {
+        for c in ["５", "※", "％", "＋", "①", "□", "●", "→", "―", "…", "㈱", "ｱ", "￥", "　", "︑", "︒", "︵", "︶", "﹁", "﹂", "︙"] {
             assert!(is_cjk(c), "{c}");
         }
         assert!(!is_cjk("A"));

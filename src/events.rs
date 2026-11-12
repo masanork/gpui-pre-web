@@ -8,12 +8,13 @@ use gpui::{
     Capslock, ClipboardEntry, ClipboardItem, ClipboardString, DispatchEventResult, GestureTuning,
     Image, ImageFormat, KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, ModifiersChangedEvent,
     MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection,
-    Pixels, PlatformInput, Point, ScrollDelta, ScrollWheelEvent, TouchEvent, TouchId, TouchPhase,
-    point, px,
+    PinchEvent, Pixels, PlatformInput, Point, ScrollDelta, ScrollWheelEvent, TouchEvent, TouchId,
+    TouchPhase, point, px,
 };
 use wasm_bindgen::prelude::*;
 
 use crate::ime_mirror::ImeMirror;
+use crate::touch_pinch::{Phase as PinchPhase, Pinch};
 use crate::window::WebWindowInner;
 
 pub struct WebEventListeners {
@@ -238,6 +239,20 @@ impl WebWindowInner {
         changed
     }
 
+    fn dispatch_pinch(&self, pinch: Pinch) {
+        self.dispatch_input(PlatformInput::Pinch(PinchEvent {
+            position: point(px(pinch.center.0), px(pinch.center.1)),
+            delta: pinch.delta,
+            modifiers: Modifiers::default(),
+            phase: match pinch.phase {
+                PinchPhase::Started => TouchPhase::Started,
+                PinchPhase::Moved => TouchPhase::Moved,
+                PinchPhase::Ended => TouchPhase::Ended,
+                PinchPhase::Cancelled => TouchPhase::Cancelled,
+            },
+        }));
+    }
+
     fn register_pointer_down(self: &Rc<Self>) -> EventListenerHandle {
         let this = Rc::clone(self);
         self.listen("pointerdown", move |event: JsValue| {
@@ -267,6 +282,32 @@ impl WebWindowInner {
                     log::error!("exhausted touch identifiers");
                     return;
                 };
+                let first = this.touch_pinch.borrow_mut().start(
+                    event.pointer_id(),
+                    (f32::from(position.x), f32::from(position.y)),
+                );
+                if let Some(first) = first {
+                    this.touch_tap_candidate.set(None);
+                    let first_id = this.touch_ids.borrow().active(first);
+                    let first_position = this.touch_pinch.borrow().position(first);
+                    if let (Some(first_id), Some((x, y))) = (first_id, first_position) {
+                        this.dispatch_input(PlatformInput::Touch(TouchEvent {
+                            id: first_id,
+                            phase: TouchPhase::Cancelled,
+                            position: point(px(x), px(y)),
+                            predicted_position: None,
+                            force: None,
+                        }));
+                    }
+                    let pinch = this.touch_pinch.borrow().started();
+                    if let Some(pinch) = pinch {
+                        this.dispatch_pinch(pinch);
+                    }
+                    return;
+                }
+                if this.touch_pinch.borrow().is_multi() {
+                    return;
+                }
                 this.state.borrow_mut().mouse_position = position;
                 if this.touch_tap_candidate.get().is_none() {
                     this.touch_tap_candidate
@@ -334,6 +375,14 @@ impl WebWindowInner {
                 let Some(touch_id) = this.touch_ids.borrow_mut().end(event.pointer_id()) else {
                     return;
                 };
+                let multi = this.touch_pinch.borrow().is_multi();
+                let pinch = this.touch_pinch.borrow_mut().end(event.pointer_id(), false);
+                if let Some(pinch) = pinch {
+                    this.dispatch_pinch(pinch);
+                }
+                if multi {
+                    return;
+                }
                 this.state.borrow_mut().mouse_position = position;
                 let completes_tap = match this.touch_tap_candidate.get() {
                     Some((pointer_id, _)) if pointer_id == event.pointer_id() => {
@@ -452,6 +501,14 @@ impl WebWindowInner {
                 let Some(touch_id) = this.touch_ids.borrow_mut().end(event.pointer_id()) else {
                     return;
                 };
+                let multi = this.touch_pinch.borrow().is_multi();
+                let pinch = this.touch_pinch.borrow_mut().end(event.pointer_id(), true);
+                if let Some(pinch) = pinch {
+                    this.dispatch_pinch(pinch);
+                }
+                if multi {
+                    return;
+                }
                 if let Some((pointer_id, _)) = this.touch_tap_candidate.get()
                     && pointer_id == event.pointer_id()
                 {
@@ -574,6 +631,17 @@ impl WebWindowInner {
                     return;
                 };
                 this.state.borrow_mut().mouse_position = position;
+                let multi = this.touch_pinch.borrow().is_multi();
+                let pinch = this.touch_pinch.borrow_mut().moved(
+                    event.pointer_id(),
+                    (f32::from(position.x), f32::from(position.y)),
+                );
+                if let Some(pinch) = pinch {
+                    this.dispatch_pinch(pinch);
+                }
+                if multi {
+                    return;
+                }
                 // Mirror the slop rule of gpui's tap recognizer: once the
                 // touch travels beyond it, its release must not affect the
                 // keyboard. Only gpui knows what the gesture truly resolved

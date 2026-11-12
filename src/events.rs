@@ -1,4 +1,4 @@
-// Also modified by ibis inc.: the hidden IME element is placed at the text being composed.
+// Also modified by ibis inc.: the hidden IME element is placed at the text being composed, and at the caret on the keydown before the composition starts.
 // Modified by ibis inc. for ibisOffice: ignore IME-processed keydown events
 // (keyCode == 229, is_composing) before dispatching to the application,
 // preventing duplicate character entry and unwanted cell navigation on commit.
@@ -723,6 +723,14 @@ impl WebWindowInner {
         let this = Rc::clone(self);
         self.listen_input("keydown", move |event: JsValue| {
             let event: web_sys::KeyboardEvent = event.unchecked_into();
+
+            // ibis: the IME opens its candidate window where the hidden element is when the
+            // composition begins, which is after this keydown and before `compositionstart`: the
+            // element is put at the caret now (it sat at 0,0 until the first `compositionstart`,
+            // so the first candidates of a session came up in the page's top-left corner, #127).
+            if !this.is_composing.get() && (event.key_code() == 229 || event.key().chars().count() == 1) {
+                this.place_ime_mirror();
+            }
 
             let modifiers = modifiers_from_keyboard_event(&event, this.is_mac);
             let capslock = capslock_from_keyboard_event(&event);

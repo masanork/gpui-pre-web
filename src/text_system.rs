@@ -1,3 +1,4 @@
+// Also modified by ibis inc.: Japanese text no named family covers falls to a gothic face (`GOTHIC_FAMILIES`) before the generic `sans-serif`.
 // Also modified by ibis inc. (bold and italic asked of a family whose loaded face is regular: `font_id` returns an alias of the
 // face, the browser draws the text of that alias with the requested weight and style).
 // Also modified by ibis inc.: `font_data`, `synthetic_style` and `font_variations` are the native text system's.
@@ -633,6 +634,12 @@ impl CanvasFont {
                     .map(|family| quote_family(family)),
             );
         }
+        // ibis: a Japanese character no named family covers is drawn in a gothic face the viewer's system has (the Mac's Hiragino,
+        // Windows' Yu Gothic UI / Meiryo UI, Linux's Noto Sans CJK JP), not in whatever the browser's bare `sans-serif` picks for the
+        // page's language (a Chinese face or a mincho on some systems; K0017).
+        if !color && !self.monospace {
+            families.extend(GOTHIC_FAMILIES.iter().map(|family| quote_family(family)));
+        }
         families.push(
             if color {
                 "emoji"
@@ -650,6 +657,18 @@ impl CanvasFont {
         ))
     }
 }
+
+/// The gothic faces of the common systems, in the order tried (a family the system lacks is skipped by the browser).
+const GOTHIC_FAMILIES: [&str; 8] = [
+    "Hiragino Sans",
+    "Hiragino Kaku Gothic ProN",
+    "Yu Gothic UI",
+    "Meiryo UI",
+    "Yu Gothic",
+    "Noto Sans CJK JP",
+    "Noto Sans JP",
+    "IPAexGothic",
+];
 
 fn quote_family(family: &str) -> String {
     let mut quoted = String::from("\"");

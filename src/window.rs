@@ -69,6 +69,10 @@ pub(crate) struct WebWindowInner {
     pub(crate) last_physical_size: Cell<(u32, u32)>,
     pub(crate) notify_scale: Cell<bool>,
     pub(crate) is_composing: Cell<bool>,
+    /// ibis: where the composition starts in the hidden element's value (UTF-16 units), set by `compositionstart`.
+    pub(crate) composition_start: Cell<u32>,
+    /// ibis: the length of the composing text (UTF-16 units) of the last `compositionupdate`.
+    pub(crate) composition_len: Cell<Option<usize>>,
     /// Set while `show_virtual_keyboard` blur/focus-cycles the hidden input.
     /// The cycle is a keyboard-visibility hint, not a real activity change;
     /// letting the focus/blur listeners report it would re-enter GPUI
@@ -223,6 +227,8 @@ impl WebWindow {
             last_physical_size: Cell::new((0, 0)),
             notify_scale: Cell::new(false),
             is_composing: Cell::new(false),
+            composition_start: Cell::new(0),
+            composition_len: Cell::new(None),
             suppress_focus_status_events: Cell::new(false),
             gesture_start_visual_viewport_height: Cell::new(0.0),
             touch_tap_candidate: Cell::new(None),

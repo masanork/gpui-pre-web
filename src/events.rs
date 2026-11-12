@@ -6,7 +6,7 @@
 use std::{collections::HashMap, rc::Rc};
 
 use gpui::{
-    Capslock, ClipboardEntry, ClipboardItem, ClipboardString, DispatchEventResult, GestureTuning,
+    ImeClause, Capslock, ClipboardEntry, ClipboardItem, ClipboardString, DispatchEventResult, GestureTuning,
     Image, ImageFormat, KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, ModifiersChangedEvent,
     MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection,
     Pixels, PlatformInput, Point, ScrollDelta, ScrollWheelEvent, TouchEvent, TouchId, TouchPhase,
@@ -494,6 +494,18 @@ impl WebWindowInner {
         );
     }
 
+    /// The underlines of the composing text from the element's selection (browsers tell no more about the clauses): see
+    /// `ImeClause::from_selection`. UTF-16 units from the start of the composition, as the element's offsets are.
+    fn set_composition_clauses(self: &Rc<Self>) {
+        let start = self.composition_start.get() as usize;
+        let end = self.ime_mirror.selection_start().unwrap_or(0) as usize;
+        let sel_end = self.ime_mirror.element_selection_end().map_or(end, |e| e as usize);
+        let Some(len) = self.composition_len.get() else { return };
+        let (a, b) = (end.saturating_sub(start), sel_end.saturating_sub(start));
+        let clauses = ImeClause::from_selection(len, a..b);
+        self.with_input_handler(|handler| handler.set_ime_clauses(clauses));
+    }
+
     /// See [`ImeMirror::schedule_sync`].
     fn schedule_ime_mirror_sync(self: &Rc<Self>) {
         ImeMirror::schedule_sync(self);
@@ -863,6 +875,9 @@ impl WebWindowInner {
             // Composition text is delivered through the composition events;
             // the mirror is reconciled once on compositionend.
             if this.is_composing.get() || event.is_composing() {
+                // ibis (#127): the browser has put the composition into the element and selected the clause the IME is converting
+                // in it (nothing selected while the text is still being typed): the underlines of the clauses from that.
+                this.set_composition_clauses();
                 return;
             }
 
@@ -1149,6 +1164,7 @@ impl WebWindowInner {
         let this = Rc::clone(self);
         self.listen_input("compositionstart", move |_event: JsValue| {
             this.is_composing.set(true);
+            this.composition_start.set(this.ime_mirror.selection_start().unwrap_or(0));
             this.place_ime_mirror();
         })
     }
@@ -1159,6 +1175,7 @@ impl WebWindowInner {
             let event: web_sys::CompositionEvent = event.unchecked_into();
             let data = event.data().unwrap_or_default();
             this.is_composing.set(true);
+            this.composition_len.set(Some(data.encode_utf16().count()));
             this.with_input_handler(|handler| {
                 handler.replace_and_mark_text_in_range(None, &data, None);
             });

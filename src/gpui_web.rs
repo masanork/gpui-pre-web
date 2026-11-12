@@ -32,7 +32,6 @@ mod run_replacements;
 #[cfg(target_family = "wasm")]
 mod text_system;
 #[cfg(any(target_family = "wasm", test))]
-mod touch_pinch;
 #[cfg(target_family = "wasm")]
 mod viewport;
 #[cfg(target_family = "wasm")]

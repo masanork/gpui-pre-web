@@ -1,4 +1,4 @@
-// Modified by ibis inc. for ibisOffice: `update_ime_position` moves the hidden IME element.
+// Modified by ibis inc. for ibisOffice: `update_ime_position` moves the hidden IME element, which is also put at the caret after every frame.
 
 use crate::display::WebDisplay;
 use crate::events::{
@@ -454,6 +454,11 @@ impl WebWindowInner {
                     })
                 },
             );
+            // ibis: the hidden IME element stays at the caret after every frame, so it is there before the first key of a
+            // composition (the IME takes the element's place at its focus and key events, not at `compositionstart`; #127).
+            if !this.is_composing.get() {
+                this.place_ime_mirror();
+            }
         });
 
         let js_func: js_sys::Function =

@@ -482,7 +482,7 @@ impl WebWindowInner {
 
     /// Moves the hidden IME element to the text being typed (ibis: so the candidate
     /// window opens there). The editor's bounds are in the canvas's CSS pixels.
-    fn place_ime_mirror(self: &Rc<Self>) {
+    pub(crate) fn place_ime_mirror(self: &Rc<Self>) {
         let Some(Some(bounds)) = self.with_input_handler(|handler| handler.ime_candidate_bounds()) else {
             return;
         };

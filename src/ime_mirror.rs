@@ -84,6 +84,8 @@ pub(crate) struct ImeMirror {
     /// selection has moved; a rejected import means no import is coming,
     /// so the next sync must reassert the app's state instead of waiting.
     selection_import_rejected: Cell<bool>,
+    /// Where `place` last put the element (left, top, height).
+    placed: Cell<(f32, f32, f32)>,
 }
 
 impl ImeMirror {
@@ -132,6 +134,7 @@ impl ImeMirror {
             window_hint: Cell::new(0),
             sync_scheduled: Cell::new(false),
             selection_import_rejected: Cell::new(false),
+            placed: Cell::new((0.0, 0.0, 1.0)),
         };
         // Until an input handler asks otherwise, the element is an IME
         // conduit, not a form field: browser-side text assistance would
@@ -233,6 +236,10 @@ impl ImeMirror {
     /// (ibis: the element sits at 0,0 otherwise). Only the element's style changes; its
     /// value and selection are not written, so the IME is not restarted.
     pub(crate) fn place(&self, left: f32, top: f32, height: f32) {
+        // Called after every frame: nothing is written when the place is the same.
+        if self.placed.replace((left, top, height)) == (left, top, height) {
+            return;
+        }
         let style = self.element.style();
         style.set_property("left", &format!("{left}px")).ok();
         style.set_property("top", &format!("{top}px")).ok();

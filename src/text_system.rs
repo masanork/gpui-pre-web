@@ -1,20 +1,24 @@
 // Also modified by ibis inc.: Japanese text no named family covers falls to a gothic face (`GOTHIC_FAMILIES`) before the generic `sans-serif`.
 // Also modified by ibis inc. (bold and italic asked of a family whose loaded face is regular: `font_id` returns an alias of the
 // face, the browser draws the text of that alias with the requested weight and style).
+// Also modified by ibis inc.: a CJK character no requested family covers is drawn by the browser, never in an unrelated loaded face (K0017).
 // Also modified by ibis inc.: `font_data`, `synthetic_style` and `font_variations` are the native text system's.
 use crate::canvas_fallback::{
-    CanvasFontFallback, classify_canvas_fallback, is_latin_grapheme, requested_family_names,
+    CanvasFontFallback, classify_canvas_fallback, is_latin_grapheme, names_serif_family,
+    requested_family_names,
 };
 use crate::canvas_text::{self, CanvasTextMetrics};
 use crate::glyph_cache::{CanvasGlyph, GlyphCache};
-use crate::run_replacements::{Replacement, apply_replacements, collect_candidates};
+use crate::run_replacements::{
+    Replacement, apply_replacements, collect_candidates, demote_implicit_cjk,
+};
 use anyhow::{Context as _, Result, ensure};
 use gpui::{
     Bounds, DevicePixels, Font, FontId, FontMetrics, FontRun, FontStyle, GlyphId, Hsla, LineLayout,
     MissingGlyphSink, Pixels, PlatformTextSystem, RenderGlyphParams, SUBPIXEL_VARIANTS_X,
     SUBPIXEL_VARIANTS_Y, ShapedGlyph, Size, TextRenderingMode, point, px, size,
 };
-use gpui_wgpu::CosmicTextSystem;
+use gpui_wgpu::{CosmicTextSystem, FaceClass};
 use parking_lot::RwLock;
 use std::{
     borrow::Cow,
@@ -36,6 +40,8 @@ pub(crate) struct WebTextSystem {
 struct State {
     missing_glyph_sink: Option<Arc<dyn MissingGlyphSink>>,
     descriptors: HashMap<FontId, Font>,
+    /// Serif/sans class of each native face (read from its font file once; K0017).
+    face_classes: HashMap<FontId, Option<FaceClass>>,
     canvas_fonts: Vec<Arc<CanvasFont>>,
     canvas_font_ids: HashMap<FontId, FontId>,
     glyphs: GlyphCache,
@@ -82,6 +88,27 @@ impl WebTextSystem {
             native: CosmicTextSystem::new_without_system_fonts(system_font_fallback),
             state: RwLock::new(State::default()),
             canvas_font_fallback,
+        }
+    }
+
+    fn face_class(&self, face: FontId) -> Option<FaceClass> {
+        if let Some(class) = self.state.read().face_classes.get(&face) {
+            return *class;
+        }
+        let class = self.native.face_class(face);
+        self.state.write().face_classes.insert(face, class);
+        class
+    }
+
+    /// The class the request wants: serif when the descriptor names a serif family, else that of the loaded face.
+    fn requested_class(&self, requested: FontId) -> Option<FaceClass> {
+        let serif_named = self.state.read().descriptors.get(&requested).is_some_and(|font| {
+            descriptor_names_serif(font)
+        });
+        if serif_named {
+            Some(FaceClass::Serif)
+        } else {
+            self.face_class(requested)
         }
     }
 
@@ -562,6 +589,17 @@ impl PlatformTextSystem for WebTextSystem {
                 Cow::Borrowed(runs)
             };
         let mut layout = self.native.layout_line(text, font_size, &native_runs);
+        // ibis (K0017): a CJK character no requested family covers goes to the browser, not to any face the native system holds.
+        if self.canvas_font_fallback.allows(false) {
+            // Rule: a face the request did not name is used only when it is of the same class (serif/sans) as the request.
+            demote_implicit_cjk(text, &native_runs, &mut layout, |requested, face| {
+                self.native.face_in_requested_families(requested, face)
+                    || matches!(
+                        (self.requested_class(requested), self.face_class(face)),
+                        (Some(wanted), Some(got)) if wanted == got
+                    )
+            });
+        }
         self.apply_fallback(text, runs, &mut layout);
         let sink = self.state.read().missing_glyph_sink.clone();
         if let Some(sink) = sink {
@@ -591,6 +629,13 @@ impl PlatformTextSystem for WebTextSystem {
     fn glyph_dilation_for_color(&self, color: Hsla) -> u8 {
         self.native.glyph_dilation_for_color(color)
     }
+}
+
+fn descriptor_names_serif(font: &Font) -> bool {
+    names_serif_family(&font.family)
+        || font.fallbacks.as_ref().is_some_and(|fallbacks| {
+            requested_family_names(fallbacks.fallback_list()).any(names_serif_family)
+        })
 }
 
 impl CanvasFont {
@@ -637,14 +682,20 @@ impl CanvasFont {
         // ibis: a Japanese character no named family covers is drawn in a gothic face the viewer's system has (the Mac's Hiragino,
         // Windows' Yu Gothic UI / Meiryo UI, Linux's Noto Sans CJK JP), not in whatever the browser's bare `sans-serif` picks for the
         // page's language (a Chinese face or a mincho on some systems; K0017).
+        // A request that names a serif family gets a mincho list and `serif`: the class of the request decides, so a gothic
+        // request is never drawn in a mincho and a mincho request is never drawn in a gothic.
+        let serif = !color && !self.monospace && descriptor_names_serif(&self.descriptor);
         if !color && !self.monospace {
-            families.extend(GOTHIC_FAMILIES.iter().map(|family| quote_family(family)));
+            let list: &[&str] = if serif { &MINCHO_FAMILIES } else { &GOTHIC_FAMILIES };
+            families.extend(list.iter().map(|family| quote_family(family)));
         }
         families.push(
             if color {
                 "emoji"
             } else if self.monospace {
                 "monospace"
+            } else if serif {
+                "serif"
             } else {
                 "sans-serif"
             }
@@ -668,6 +719,16 @@ const GOTHIC_FAMILIES: [&str; 8] = [
     "Noto Sans CJK JP",
     "Noto Sans JP",
     "IPAexGothic",
+];
+
+/// The mincho faces of the common systems, for a request that names a serif family.
+const MINCHO_FAMILIES: [&str; 6] = [
+    "Hiragino Mincho ProN",
+    "Yu Mincho",
+    "MS PMincho",
+    "Noto Serif CJK JP",
+    "Noto Serif JP",
+    "IPAexMincho",
 ];
 
 fn quote_family(family: &str) -> String {

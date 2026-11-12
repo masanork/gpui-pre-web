@@ -61,6 +61,20 @@ pub fn requested_family_names(fallbacks: &[String]) -> impl Iterator<Item = &str
         .take_while(|name| *name != LATIN_FALLBACK_SEPARATOR)
 }
 
+/// ibis (K0017): whether a family name says the face is serif (a mincho), so that CJK text it asks for is drawn in a mincho and never
+/// in a gothic, as a gothic request is never drawn in a mincho (the rule of `demote_implicit_cjk`).
+pub fn names_serif_family(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    !lower.contains("sans")
+        && !lower.contains("gothic")
+        && ["mincho", "serif", "times", "georgia", "garamond", "palatino", "cambria"]
+            .iter()
+            .any(|key| lower.contains(key))
+        || ["\u{660e}\u{671d}", "\u{660e}\u{9ad4}", "\u{660e}\u{4f53}", "\u{5b8b}\u{4f53}", "\u{5b8b}\u{9ad4}"]
+            .iter()
+            .any(|key| name.contains(key))
+}
+
 /// Whether `grapheme` is one printable ASCII character or one Latin-script
 /// letter: text a typeface for Latin draws, which the bundled fonts also have.
 pub fn is_latin_grapheme(grapheme: &str) -> bool {
@@ -303,6 +317,16 @@ fn is_supported_zwj_sequence(grapheme: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serif_family_names() {
+        for name in ["IPAmjMincho", "MS PMincho", "Noto Serif CJK JP", "Times New Roman", "\u{6e38}\u{660e}\u{671d}", "MS \u{660e}\u{671d}"] {
+            assert!(names_serif_family(name), "{name}");
+        }
+        for name in ["IBM Plex Sans", "MS Gothic", "Noto Sans CJK JP", "Meiryo", "Yu Gothic UI", "Arial"] {
+            assert!(!names_serif_family(name), "{name}");
+        }
+    }
 
     #[test]
     fn japanese_symbols_fall_back() {

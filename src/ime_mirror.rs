@@ -1,3 +1,6 @@
+// Modified by ibis inc. for ibisOffice: the hidden IME element follows the text being typed
+// (`place`), so the IME candidate window opens there, not at the page's top-left.
+
 //! The hidden `<textarea>` that connects browser IMEs to GPUI.
 //!
 //! IMEs (software keyboards, composition engines) decide what backspace,
@@ -81,6 +84,8 @@ pub(crate) struct ImeMirror {
     /// selection has moved; a rejected import means no import is coming,
     /// so the next sync must reassert the app's state instead of waiting.
     selection_import_rejected: Cell<bool>,
+    /// Where `place` last put the element (left, top, height).
+    placed: Cell<(f32, f32, f32)>,
 }
 
 impl ImeMirror {
@@ -104,6 +109,16 @@ impl ImeMirror {
         style.set_property("width", "1px").ok();
         style.set_property("height", "1px").ok();
         style.set_property("opacity", "0").ok();
+        // ibis (#127): the browser puts the candidate window at the element's caret. Its place must be known exactly: no border or
+        // padding (a textarea has 1px and 2px by default, which moved the caret down by them), one line of `CARET_LINE_PX` that
+        // does not wrap (so the caret is that one line, however long the composing text is).
+        style.set_property("margin", "0").ok();
+        style.set_property("padding", "0").ok();
+        style.set_property("border", "0").ok();
+        style.set_property("overflow", "hidden").ok();
+        style.set_property("white-space", "pre").ok();
+        style.set_property("line-height", &format!("{CARET_LINE_PX}px")).ok();
+        style.set_property("resize", "none").ok();
         // Android Chrome zooms the visual viewport onto a focused text input
         // whose font is smaller than 16px; with page zoom disabled the user
         // can never zoom back out, so keep the hidden IME input at 16px.
@@ -129,6 +144,7 @@ impl ImeMirror {
             window_hint: Cell::new(0),
             sync_scheduled: Cell::new(false),
             selection_import_rejected: Cell::new(false),
+            placed: Cell::new((0.0, 0.0, 1.0)),
         };
         // Until an input handler asks otherwise, the element is an IME
         // conduit, not a form field: browser-side text assistance would
@@ -223,6 +239,22 @@ impl ImeMirror {
         {
             log::warn!("Failed to configure input mode: {error:?}");
         }
+    }
+
+    /// Puts the hidden element where the text being typed is (page CSS pixels), so that the
+    /// IME's candidate window opens under the text, not in the page's top-left corner
+    /// (ibis: the element sits at 0,0 otherwise). Only the element's style changes; its
+    /// value and selection are not written, so the IME is not restarted.
+    pub(crate) fn place(&self, left: f32, top: f32, height: f32) {
+        // Called after every frame: nothing is written when the place is the same.
+        if self.placed.replace((left, top, height)) == (left, top, height) {
+            return;
+        }
+        let (top, height) = element_box(top, height);
+        let style = self.element.style();
+        style.set_property("left", &format!("{left}px")).ok();
+        style.set_property("top", &format!("{top}px")).ok();
+        style.set_property("height", &format!("{height}px")).ok();
     }
 
     pub(crate) fn remove(&self) {
@@ -615,4 +647,29 @@ fn is_consistent(
     }
     // The element selection corresponds to the app selection end too?
     app_selection.end.checked_sub(app_window_start) == Some(element_selection_end)
+}
+
+/// The height of the hidden element's one line (CSS pixels): the line-height of the element, and of its box.
+pub(crate) const CARET_LINE_PX: f32 = 16.0;
+
+/// The element's (top, height) for the text line `top` and `height` tall (CSS pixels): the element is one `CARET_LINE_PX` line whose bottom
+/// is the bottom of the text line, so the caret the browser puts its candidate window under ends where the text line ends. The element
+/// used to be as tall as the text line and start at its top, whose caret ended `CARET_LINE_PX` below the top, which is over the text
+/// when the line is taller than that (a big font or a zoomed page) (#127).
+pub(crate) fn element_box(top: f32, height: f32) -> (f32, f32) {
+    (top + height.max(1.0) - CARET_LINE_PX, CARET_LINE_PX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn element_bottom_is_the_text_line_bottom() {
+        for (top, height) in [(100.0, 16.0), (100.0, 40.0), (0.0, 1.0), (250.5, 23.25)] {
+            let (t, h) = element_box(top, height);
+            assert_eq!(h, CARET_LINE_PX);
+            assert_eq!(t + h, top + height.max(1.0), "{top} {height}");
+        }
+    }
 }

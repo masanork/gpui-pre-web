@@ -1,3 +1,4 @@
+// Also modified by ibis inc.: the hidden IME element is placed at the text being composed, and at the caret on the keydown before the composition starts.
 // Modified by ibis inc. for ibisOffice: ignore IME-processed keydown events
 // (keyCode == 229, is_composing) before dispatching to the application,
 // preventing duplicate character entry and unwanted cell navigation on commit.
@@ -5,7 +6,7 @@
 use std::{collections::HashMap, rc::Rc};
 
 use gpui::{
-    Capslock, ClipboardEntry, ClipboardItem, ClipboardString, DispatchEventResult, GestureTuning,
+    ImeClause, Capslock, ClipboardEntry, ClipboardItem, ClipboardString, DispatchEventResult, GestureTuning,
     Image, ImageFormat, KeyDownEvent, KeyUpEvent, Keystroke, Modifiers, ModifiersChangedEvent,
     MouseButton, MouseDownEvent, MouseExitEvent, MouseMoveEvent, MouseUpEvent, NavigationDirection,
     PinchEvent, Pixels, PlatformInput, Point, ScrollDelta, ScrollWheelEvent, TouchEvent, TouchId,
@@ -536,6 +537,32 @@ impl WebWindowInner {
         })
     }
 
+    /// Moves the hidden IME element to the text being typed (ibis: so the candidate
+    /// window opens there). The editor's bounds are in the canvas's CSS pixels.
+    pub(crate) fn place_ime_mirror(self: &Rc<Self>) {
+        let Some(Some(bounds)) = self.with_input_handler(|handler| handler.ime_candidate_bounds()) else {
+            return;
+        };
+        let canvas = self.canvas.get_bounding_client_rect();
+        self.ime_mirror.place(
+            canvas.left() as f32 + f32::from(bounds.origin.x),
+            canvas.top() as f32 + f32::from(bounds.origin.y),
+            f32::from(bounds.size.height),
+        );
+    }
+
+    /// The underlines of the composing text from the element's selection (browsers tell no more about the clauses): see
+    /// `ImeClause::from_selection`. UTF-16 units from the start of the composition, as the element's offsets are.
+    fn set_composition_clauses(self: &Rc<Self>) {
+        let start = self.composition_start.get() as usize;
+        let end = self.ime_mirror.selection_start().unwrap_or(0) as usize;
+        let sel_end = self.ime_mirror.element_selection_end().map_or(end, |e| e as usize);
+        let Some(len) = self.composition_len.get() else { return };
+        let (a, b) = (end.saturating_sub(start), sel_end.saturating_sub(start));
+        let clauses = ImeClause::from_selection(len, a..b);
+        self.with_input_handler(|handler| handler.set_ime_clauses(clauses));
+    }
+
     /// See [`ImeMirror::schedule_sync`].
     fn schedule_ime_mirror_sync(self: &Rc<Self>) {
         ImeMirror::schedule_sync(self);
@@ -777,6 +804,14 @@ impl WebWindowInner {
         self.listen_input("keydown", move |event: JsValue| {
             let event: web_sys::KeyboardEvent = event.unchecked_into();
 
+            // ibis: the IME opens its candidate window where the hidden element is when the
+            // composition begins, which is after this keydown and before `compositionstart`: the
+            // element is put at the caret now (it sat at 0,0 until the first `compositionstart`,
+            // so the first candidates of a session came up in the page's top-left corner, #127).
+            if !this.is_composing.get() && (event.key_code() == 229 || event.key().chars().count() == 1) {
+                this.place_ime_mirror();
+            }
+
             let modifiers = modifiers_from_keyboard_event(&event, this.is_mac);
             let capslock = capslock_from_keyboard_event(&event);
 
@@ -908,6 +943,9 @@ impl WebWindowInner {
             // Composition text is delivered through the composition events;
             // the mirror is reconciled once on compositionend.
             if this.is_composing.get() || event.is_composing() {
+                // ibis (#127): the browser has put the composition into the element and selected the clause the IME is converting
+                // in it (nothing selected while the text is still being typed): the underlines of the clauses from that.
+                this.set_composition_clauses();
                 return;
             }
 
@@ -1194,6 +1232,8 @@ impl WebWindowInner {
         let this = Rc::clone(self);
         self.listen_input("compositionstart", move |_event: JsValue| {
             this.is_composing.set(true);
+            this.composition_start.set(this.ime_mirror.selection_start().unwrap_or(0));
+            this.place_ime_mirror();
         })
     }
 
@@ -1203,9 +1243,11 @@ impl WebWindowInner {
             let event: web_sys::CompositionEvent = event.unchecked_into();
             let data = event.data().unwrap_or_default();
             this.is_composing.set(true);
+            this.composition_len.set(Some(data.encode_utf16().count()));
             this.with_input_handler(|handler| {
                 handler.replace_and_mark_text_in_range(None, &data, None);
             });
+            this.place_ime_mirror();
         })
     }
 

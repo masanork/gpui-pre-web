@@ -110,6 +110,45 @@ pub(crate) fn collect_candidates(
     candidates
 }
 
+/// ibis: a CJK character the requested families (the run's font and the fallbacks the descriptor names) lack is not drawn in
+/// whatever other face the native text system happens to hold (cosmic-text's last-resort fallback takes any loaded face, e.g. a
+/// downloaded IPAmj Mincho; K0017). Such a glyph is made a missing glyph (id 0), so the Canvas fallback draws it in the
+/// browser's gothic face. A document that names the face keeps it (`in_requested(requested, face)` is true for it).
+pub(crate) fn demote_implicit_cjk(
+    text: &str,
+    font_runs: &[FontRun],
+    layout: &mut LineLayout,
+    in_requested: impl Fn(FontId, FontId) -> bool,
+) {
+    for shaped in &mut layout.runs {
+        let face = shaped.font_id;
+        for glyph in &mut shaped.glyphs {
+            if glyph.id.0 == 0 || glyph.is_emoji {
+                continue;
+            }
+            let mut offset = 0;
+            let Some(requested) = font_runs.iter().find_map(|run| {
+                offset += run.len;
+                (glyph.index < offset).then_some(run.font_id)
+            }) else {
+                continue;
+            };
+            if requested == face || in_requested(requested, face) {
+                continue;
+            }
+            let Some(grapheme) = text
+                .get(glyph.index..)
+                .and_then(|rest| rest.graphemes(true).next())
+            else {
+                continue;
+            };
+            if classify_canvas_fallback(grapheme).is_some_and(|fallback| !fallback.is_emoji) {
+                glyph.id = gpui::GlyphId(0);
+            }
+        }
+    }
+}
+
 pub(crate) struct Replacement {
     pub(crate) glyph_range: Range<usize>,
     pub(crate) font_id: FontId,
@@ -227,6 +266,42 @@ mod tests {
             index,
             is_emoji: color,
         }
+    }
+
+    #[test]
+    fn implicit_cjk_fallback_becomes_missing_unless_requested() {
+        let text = "a\u{6f22}\u{5b57}";
+        let runs = [FontRun {
+            len: text.len(),
+            font_id: FontId(1),
+        }];
+        let build = || {
+            let mut layout = layout(&[1, 0]);
+            layout.runs[0].glyphs = vec![source_glyph(0, 0.0, 5, false)];
+            layout.runs[1].font_id = FontId(9);
+            layout.runs[1].glyphs = vec![
+                source_glyph(1, 8.0, 7, false),
+                source_glyph(4, 16.0, 8, false),
+            ];
+            layout
+        };
+        let ids = |layout: &LineLayout| -> Vec<u32> {
+            layout
+                .runs
+                .iter()
+                .flat_map(|run| run.glyphs.iter().map(|glyph| glyph.id.0))
+                .collect()
+        };
+        // The face FontId(9) is not one the run asked for: its CJK glyphs go to the Canvas fallback.
+        let mut implicit = build();
+        demote_implicit_cjk(text, &runs, &mut implicit, |_, _| false);
+        assert_eq!(ids(&implicit), vec![5, 0, 0]);
+        // The document names that face (or lists it as a fallback): it is kept.
+        let mut named = build();
+        demote_implicit_cjk(text, &runs, &mut named, |requested, face| {
+            requested == FontId(1) && face == FontId(9)
+        });
+        assert_eq!(ids(&named), vec![5, 7, 8]);
     }
 
     #[test]

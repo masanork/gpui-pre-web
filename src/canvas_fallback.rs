@@ -1,6 +1,7 @@
 // Modified by ibis inc. for ibisOffice: Japanese documents' full-width
 // letters, digits and symbols (Ｕ＋FF01–FF60, ※, ①, ○, → and the like) are
 // eligible for the browser-font fallback, as the bundled fonts lack them.
+// Also modified by ibis inc.: the musical signs ♪ ♭ ♯ (U+266A to U+266F) of JIS X 0208 fall back too.
 // Also modified by ibis inc.: Latin graphemes (`is_latin_grapheme`) and the
 // separator in a font's fallback list (`LATIN_FALLBACK_SEPARATOR`) let the
 // text system draw half-width letters and digits with the typeface a document
@@ -58,6 +59,20 @@ pub fn requested_family_names(fallbacks: &[String]) -> impl Iterator<Item = &str
         .iter()
         .map(String::as_str)
         .take_while(|name| *name != LATIN_FALLBACK_SEPARATOR)
+}
+
+/// ibis (K0017): whether a family name says the face is serif (a mincho), so that CJK text it asks for is drawn in a mincho and never
+/// in a gothic, as a gothic request is never drawn in a mincho (the rule of `demote_implicit_cjk`).
+pub fn names_serif_family(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    !lower.contains("sans")
+        && !lower.contains("gothic")
+        && ["mincho", "serif", "times", "georgia", "garamond", "palatino", "cambria"]
+            .iter()
+            .any(|key| lower.contains(key))
+        || ["\u{660e}\u{671d}", "\u{660e}\u{9ad4}", "\u{660e}\u{4f53}", "\u{5b8b}\u{4f53}", "\u{5b8b}\u{9ad4}"]
+            .iter()
+            .any(|key| name.contains(key))
 }
 
 /// Whether `grapheme` is one printable ASCII character or one Latin-script
@@ -184,6 +199,7 @@ fn is_japanese_symbol(c: char) -> bool {
         | '\u{2500}'..='\u{257f}' // box drawing
         | '\u{25a0}'..='\u{25ff}' // geometric shapes (□ ■ ○ ●)
         | '\u{2605}' | '\u{2606}' | '\u{2640}' | '\u{2642}' // ★ ☆ ♀ ♂
+        | '\u{266a}'..='\u{266f}' // ♪ ♫ ♬ ♭ ♮ ♯ (JIS X 0208 has ♪ ♭ ♯)
         | '\u{3200}'..='\u{33ff}' // enclosed CJK, CJK compatibility (㈱ ㎡)
         | '\u{fe10}'..='\u{fe19}' // vertical punctuation presentation forms
         | '\u{fe30}'..='\u{fe44}' | '\u{fe47}'..='\u{fe48}' // vertical brackets and leaders
@@ -303,6 +319,16 @@ fn is_supported_zwj_sequence(grapheme: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serif_family_names() {
+        for name in ["IPAmjMincho", "MS PMincho", "Noto Serif CJK JP", "Times New Roman", "\u{6e38}\u{660e}\u{671d}", "MS \u{660e}\u{671d}"] {
+            assert!(names_serif_family(name), "{name}");
+        }
+        for name in ["IBM Plex Sans", "MS Gothic", "Noto Sans CJK JP", "Meiryo", "Yu Gothic UI", "Arial"] {
+            assert!(!names_serif_family(name), "{name}");
+        }
+    }
 
     #[test]
     fn japanese_symbols_fall_back() {

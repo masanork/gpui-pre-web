@@ -1,3 +1,5 @@
+// Modified by ibis inc. for ibisOffice: `update_ime_position` moves the hidden IME element, which is also put at the caret after every frame.
+
 use crate::display::WebDisplay;
 use crate::events::{
     ClickState, EventListenerHandle, TouchIds, WebEventListeners, is_mac_platform,
@@ -69,6 +71,10 @@ pub(crate) struct WebWindowInner {
     pub(crate) last_physical_size: Cell<(u32, u32)>,
     pub(crate) notify_scale: Cell<bool>,
     pub(crate) is_composing: Cell<bool>,
+    /// ibis: where the composition starts in the hidden element's value (UTF-16 units), set by `compositionstart`.
+    pub(crate) composition_start: Cell<u32>,
+    /// ibis: the length of the composing text (UTF-16 units) of the last `compositionupdate`.
+    pub(crate) composition_len: Cell<Option<usize>>,
     /// Set while `show_virtual_keyboard` blur/focus-cycles the hidden input.
     /// The cycle is a keyboard-visibility hint, not a real activity change;
     /// letting the focus/blur listeners report it would re-enter GPUI
@@ -224,6 +230,8 @@ impl WebWindow {
             last_physical_size: Cell::new((0, 0)),
             notify_scale: Cell::new(false),
             is_composing: Cell::new(false),
+            composition_start: Cell::new(0),
+            composition_len: Cell::new(None),
             suppress_focus_status_events: Cell::new(false),
             gesture_start_visual_viewport_height: Cell::new(0.0),
             touch_tap_candidate: Cell::new(None),
@@ -455,6 +463,11 @@ impl WebWindowInner {
                     })
                 },
             );
+            // ibis: the hidden IME element stays at the caret after every frame, so it is there before the first key of a
+            // composition (the IME takes the element's place at its focus and key events, not at `compositionstart`; #127).
+            if !this.is_composing.get() {
+                this.place_ime_mirror();
+            }
         });
 
         let js_func: js_sys::Function =
@@ -1009,7 +1022,15 @@ impl PlatformWindow for WebWindow {
         Some(self.inner.state.borrow().renderer.gpu_specs())
     }
 
-    fn update_ime_position(&self, _bounds: Bounds<Pixels>) {}
+    fn update_ime_position(&self, bounds: Bounds<Pixels>) {
+        // ibis: the candidate window of the IME opens at the hidden element.
+        let canvas = self.inner.canvas.get_bounding_client_rect();
+        self.inner.ime_mirror.place(
+            canvas.left() as f32 + f32::from(bounds.origin.x),
+            canvas.top() as f32 + f32::from(bounds.origin.y),
+            f32::from(bounds.size.height),
+        );
+    }
 
     fn request_decorations(&self, _decorations: WindowDecorations) {}
 

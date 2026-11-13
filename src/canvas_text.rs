@@ -56,7 +56,11 @@ impl TextCanvas {
         self.context.set_font(css_font);
         self.context.set_text_align("left");
         self.context.set_text_baseline("alphabetic");
-        self.context.set_fill_style_str("white");
+        // Modified by ibis inc.: the glyph's coverage is the alpha of black text. Skia picks its contrast and gamma table by the brightness
+        // of the text's colour and thickens light text (the alpha of the same glyph summed 25 to 34 % higher in white than in black on
+        // Windows' Chrome: Times New Roman 307,528 against 229,459, Consolas 339,187 against 272,489, Georgia 362,363 against 279,552),
+        // so white made black text look bold. The colour is multiplied in by the shader.
+        self.context.set_fill_style_str("black");
         // web-sys does not expose direction on the offscreen 2D context.
         let assigned = js_sys::Reflect::set(
             self.context.as_ref(),

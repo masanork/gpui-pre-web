@@ -6,6 +6,7 @@ use crate::events::{
 };
 use crate::ime_mirror::ImeMirror;
 use crate::platform::WebWindowLifecycle;
+use crate::touch_pinch::TouchPinch;
 use crate::viewport::WebViewport;
 use std::sync::Arc;
 use std::{cell::Cell, cell::RefCell, rc::Rc};
@@ -65,6 +66,7 @@ pub(crate) struct WebWindowInner {
     pub(crate) callbacks: RefCell<WebWindowCallbacks>,
     pub(crate) click_state: RefCell<ClickState>,
     pub(crate) touch_ids: RefCell<TouchIds>,
+    pub(crate) touch_pinch: RefCell<TouchPinch>,
     pub(crate) pressed_button: Cell<Option<MouseButton>>,
     pub(crate) last_physical_size: Cell<(u32, u32)>,
     pub(crate) notify_scale: Cell<bool>,
@@ -223,6 +225,7 @@ impl WebWindow {
             callbacks: RefCell::new(WebWindowCallbacks::default()),
             click_state: RefCell::new(ClickState::default()),
             touch_ids: RefCell::new(TouchIds::default()),
+            touch_pinch: RefCell::new(TouchPinch::default()),
             pressed_button: Cell::new(None),
             last_physical_size: Cell::new((0, 0)),
             notify_scale: Cell::new(false),

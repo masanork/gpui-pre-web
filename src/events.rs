@@ -548,7 +548,7 @@ impl WebWindowInner {
     /// We don't use `navigator.virtualKeyboard` here because it's
     /// Chromium-only.
     pub(crate) fn show_virtual_keyboard(self: &Rc<Self>) {
-        if !self.touch_input {
+        if !self.touch_input || self.touch_multi_sequence.get() {
             return;
         }
         let was_enabled = self.ime_mirror.virtual_keyboard_enabled();

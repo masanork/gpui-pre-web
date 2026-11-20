@@ -35,7 +35,9 @@ zed-version = "0.1.0"
 zed-rev = "bcf6582ce3500df93a8a39366640173e6786cea6"
 
 [features]
-default = ["multithreaded"]
+# The Docs browser entry point runs on one thread under the host CSP.
+# Keep the worker backend opt-in so wasm_thread does not link eval by default.
+default = []
 multithreaded = [
     "dep:wasm_thread",
     "scheduler/wasm-threads",

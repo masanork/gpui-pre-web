@@ -573,8 +573,9 @@ impl Platform for WebPlatform {
             CursorStyle::ResizeUp | CursorStyle::ResizeDown | CursorStyle::ResizeUpDown => {
                 "ns-resize"
             }
-            CursorStyle::ResizeUpLeftDownRight => "nesw-resize",
-            CursorStyle::ResizeUpRightDownLeft => "nwse-resize",
+            // Modified for ibisOffice: up-left/down-right is the north-west to south-east diagonal (`nwse`), and up-right/down-left `nesw`; they were swapped.
+            CursorStyle::ResizeUpLeftDownRight => "nwse-resize",
+            CursorStyle::ResizeUpRightDownLeft => "nesw-resize",
             CursorStyle::ResizeColumn => "col-resize",
             CursorStyle::ResizeRow => "row-resize",
             CursorStyle::IBeamCursorForVerticalLayout => "vertical-text",

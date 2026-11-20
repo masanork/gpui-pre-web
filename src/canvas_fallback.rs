@@ -2,6 +2,7 @@
 // letters, digits and symbols (Ｕ＋FF01–FF60, ※, ①, ○, → and the like) are
 // eligible for the browser-font fallback, as the bundled fonts lack them.
 // Also modified by ibis inc.: the musical signs ♪ ♭ ♯ (U+266A to U+266F) of JIS X 0208 fall back too.
+// Also modified by ibis inc.: the dingbats (U+2700 to U+27BF; the stand-ins of Wingdings bullets such as ❑ and ➢) fall back too.
 // Also modified by ibis inc.: Latin graphemes (`is_latin_grapheme`) and the
 // separator in a font's fallback list (`LATIN_FALLBACK_SEPARATOR`) let the
 // text system draw half-width letters and digits with the typeface a document
@@ -198,6 +199,7 @@ fn is_japanese_symbol(c: char) -> bool {
         | '\u{2460}'..='\u{24ff}' // enclosed numbers (①)
         | '\u{2500}'..='\u{257f}' // box drawing
         | '\u{25a0}'..='\u{25ff}' // geometric shapes (□ ■ ○ ●)
+        | '\u{2700}'..='\u{27bf}' // dingbats (❑ ➢ ❖ ✔: the stand-ins of Wingdings bullets, ibisOffice #230)
         | '\u{2605}' | '\u{2606}' | '\u{2640}' | '\u{2642}' // ★ ☆ ♀ ♂
         | '\u{266a}'..='\u{266f}' // ♪ ♫ ♬ ♭ ♮ ♯ (JIS X 0208 has ♪ ♭ ♯)
         | '\u{3200}'..='\u{33ff}' // enclosed CJK, CJK compatibility (㈱ ㎡)

@@ -61,6 +61,8 @@ pub(crate) struct WebWindowInner {
     pub(crate) has_device_pixel_support: bool,
     pub(crate) is_mac: bool,
     pub(crate) touch_input: bool,
+    pub(crate) keyboard_focus_on_touch_end: bool,
+    pub(crate) pending_touch_keyboard_focus: Cell<bool>,
     pub(crate) state: RefCell<WebWindowMutableState>,
     pub(crate) callbacks: RefCell<WebWindowCallbacks>,
     pub(crate) click_state: RefCell<ClickState>,
@@ -211,6 +213,14 @@ impl WebWindow {
         };
 
         let is_mac = is_mac_platform(&browser_window);
+        // iPadOS can advertise a desktop Mac user agent.
+        let navigator = browser_window.navigator();
+        let keyboard_focus_on_touch_end = navigator.user_agent().is_ok_and(|ua| {
+            ua.contains("iPhone")
+                || ua.contains("iPad")
+                || ua.contains("iPod")
+                || (is_mac && navigator.max_touch_points() > 0)
+        });
 
         let inner = Rc::new(WebWindowInner {
             browser_window,
@@ -220,6 +230,8 @@ impl WebWindow {
             has_device_pixel_support,
             is_mac,
             touch_input,
+            keyboard_focus_on_touch_end,
+            pending_touch_keyboard_focus: Cell::new(false),
             state: RefCell::new(mutable_state),
             callbacks: RefCell::new(WebWindowCallbacks::default()),
             click_state: RefCell::new(ClickState::default()),

@@ -261,6 +261,7 @@ impl WebWindowInner {
             this.canvas.set_pointer_capture(event.pointer_id()).ok();
 
             if pointer_type == "touch" {
+                this.pending_touch_keyboard_focus.set(false);
                 // Android can reopen a manually dismissed keyboard on the
                 // next touch even without another focus() call. Disarm the
                 // still-focused mirror before the browser handles that
@@ -388,7 +389,11 @@ impl WebWindowInner {
                     && dispatch_result.is_some_and(|result| !result.default_prevented)
                     && this.pointer_targets_text_input(position)
                 {
-                    this.show_virtual_keyboard();
+                    if this.keyboard_focus_on_touch_end {
+                        this.pending_touch_keyboard_focus.set(true);
+                    } else {
+                        this.show_virtual_keyboard();
+                    }
                 }
                 this.schedule_ime_mirror_sync();
                 return;
@@ -470,6 +475,7 @@ impl WebWindowInner {
         self.listen("pointercancel", move |event: JsValue| {
             let event: web_sys::PointerEvent = event.unchecked_into();
             if event.pointer_type() == "touch" {
+                this.pending_touch_keyboard_focus.set(false);
                 let (touch_id, remaining) = {
                     let mut ids = this.touch_ids.borrow_mut();
                     let Some(touch_id) = ids.end(event.pointer_id()) else { return };
@@ -499,9 +505,15 @@ impl WebWindowInner {
     /// Cancels touch default handling separately because iOS does not consistently
     /// transfer pointer-event cancellation to the corresponding touch event.
     fn register_touch_end(self: &Rc<Self>) -> EventListenerHandle {
+        let this = Rc::clone(self);
         self.listen_non_passive("touchend", move |event: JsValue| {
             let event: web_sys::Event = event.unchecked_into();
             event.prevent_default();
+            // iOS WebKit can accept DOM focus during pointerup without
+            // opening the keyboard. Use touchend for taps accepted by GPUI.
+            if this.pending_touch_keyboard_focus.replace(false) {
+                this.show_virtual_keyboard();
+            }
         })
     }
 
@@ -538,12 +550,8 @@ impl WebWindowInner {
 
     /// Aligns the software keyboard with the text input targeted by a touch tap.
     ///
-    /// Mobile browsers show the keyboard only when an editable element is
-    /// focused from within a user gesture, so this runs while the tap's
-    /// `pointerup` is still on the stack (by which point GPUI has usually
-    /// painted a frame since the `MouseDown`, so the input handler reflects
-    /// the tap's focus change). This also handles an editable tap after manual
-    /// dismissal, when editability stayed true and no focus transition fires.
+    /// Keep the focus call in the browser's touch gesture so it can open the
+    /// keyboard, including when reopening it after manual dismissal.
     ///
     /// We don't use `navigator.virtualKeyboard` here because it's
     /// Chromium-only.
